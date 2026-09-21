@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<title>Table Tennis</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#070b10;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}
+body{touch-action:none}canvas{display:block;width:100%;height:100%;touch-action:none}
+#ui{position:fixed;inset:0;pointer-events:none;color:#fff}
+.panel{pointer-events:auto;background:rgba(9,14,21,.88);backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.13);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.4);padding:18px}
+#menu{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,560px);max-height:92vh;overflow:auto}
+h1{font-size:28px;margin:0 0 16px;text-align:center}h2{font-size:18px;margin:16px 0 9px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+button,select,input[type=range]{font:inherit}
+button,select{width:100%;min-height:46px;border-radius:12px;border:1px solid rgba(255,255,255,.15);background:#151d28;color:#fff;padding:9px 12px}
+button{cursor:pointer}button.primary{background:#fff;color:#10151b;border:0;font-weight:700}
+.row{display:flex;align-items:center;gap:10px;margin:8px 0}.row>label{flex:1}.row>input{flex:1}
+#hud{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:none;gap:10px;align-items:center}
+.score{min-width:76px;text-align:center;padding:8px 14px;border-radius:14px;background:rgba(7,12,18,.72);border:1px solid rgba(255,255,255,.12);font-weight:700;font-size:20px}
+#stats{position:absolute;top:12px;right:12px;display:none;padding:9px 12px;font-size:12px;line-height:1.7;border-radius:12px;background:rgba(7,12,18,.62)}
+#pause{position:absolute;top:12px;left:12px;display:none;width:auto;padding:8px 12px}
+#mobileControls{position:absolute;inset:auto 14px 14px;display:none;justify-content:space-between;align-items:end}
+.pad{display:grid;grid-template-columns:repeat(3,46px);grid-template-rows:repeat(2,46px);gap:5px}
+.pad button{min-height:46px;padding:0;background:rgba(10,15,22,.62)}
+#tip{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font-size:12px;color:rgba(255,255,255,.75);background:rgba(0,0,0,.35);padding:6px 10px;border-radius:9px}
+@media(max-width:650px){#menu{padding:14px}.grid{grid-template-columns:1fr 1fr}h1{font-size:23px}.panel{border-radius:14px}}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui">
+  <div id="menu" class="panel">
+    <h1>پینگ‌پنگ</h1>
+    <h2>سطح حریف</h2>
+    <div class="grid" id="difficulty">
+      <button data-v="0">مبتدی</button><button data-v="1">آماتور</button>
+      <button data-v="2">حرفه‌ای</button><button data-v="3">افسانه‌ای</button>
+    </div>
+    <h2>مسابقه</h2>
+    <div class="grid">
+      <label>تعداد ست‌ها<select id="sets"><option>1</option><option>3</option><option>5</option><option>7</option></select></label>
+      <label>امتیاز هر ست<select id="points"><option>11</option><option>21</option></select></label>
+    </div>
+    <h2>ظاهر</h2>
+    <div class="grid">
+      <label>میز<select id="tableStyle"><option value="green">سبز</option><option value="blue">آبی</option><option value="dark">تیره</option></select></label>
+      <label>راکت<select id="paddleStyle"><option value="red">قرمز</option><option value="blue">آبی</option><option value="black">مشکی</option></select></label>
+    </div>
+    <h2>گرافیک و صدا</h2>
+    <div class="row"><label>کیفیت گرافیک</label><input id="quality" type="range" min="0.65" max="1.6" step=".05" value="1"></div>
+    <div class="row"><label>حجم صدا</label><input id="volume" type="range" min="0" max="1" step=".05" value=".7"></div>
+    <div class="row"><label>افکت‌های صوتی</label><input id="sound" type="checkbox" checked></div>
+    <div class="grid" style="margin-top:14px"><button id="start" class="primary">شروع</button><button id="reset">بازنشانی</button></div>
+  </div>
+  <div id="hud"><div class="score"><span id="ps">0</span></div><div class="score"><span id="as">0</span></div></div>
+  <div id="stats"></div><button id="pause">توقف</button>
+  <div id="mobileControls">
+    <div class="pad"><span></span><button data-key="ArrowUp">↑</button><span></span><button data-key="ArrowLeft">←</button><button data-key="ArrowDown">↓</button><button data-key="ArrowRight">→</button></div>
+  </div>
+  <div id="tip">کشیدن انگشت یا موس = حرکت راکت · کلیدهای جهت‌دار = حرکت راکت</div>
+</div>
+<script>
+(()=>{
+'use strict';
+const c=document.getElementById('game'),x=c.getContext('2d',{alpha:false});
+const menu=document.getElementById('menu'),hud=document.getElementById('hud'),stats=document.getElementById('stats'),pause=document.getElementById('pause'),mobile=document.getElementById('mobileControls');
+const ps=document.getElementById('ps'),as=document.getElementById('as'),tip=document.getElementById('tip');
+let W=1,H=1,dpr=1,running=false,paused=false,last=0,raf=0;
+let diff=1,sets=3,target=11,playerSet=0,aiSet=0,pScore=0,aScore=0,serve=0;
+let px=.5,py=.76,tx=.5,ty=.76,aiX=.5,aiY=.235,ball={x:.5,y:.50,z:.20,vx:.004,vy:.003,vz:.006,spin:0};
+let statsData={hits:0,errors:0,maxSpeed:0};
+let keys={};let audioCtx=null;
+const opt={table:'green',paddle:'red',quality:1,volume:.7,sound:true};
+const colors={green:'#075f43',blue:'#0b3e68',dark:'#20262d',red:'#d7373f',blueP:'#237ad4',black:'#17191d'};
+function resize(){dpr=Math.min(devicePixelRatio||1,2)*opt.quality;W=innerWidth;H=innerHeight;c.width=Math.max(1,W*dpr);c.height=Math.max(1,H*dpr);c.style.width=W+'px';c.style.height=H+'px';x.setTransform(dpr,0,0,dpr,0,0)}
+addEventListener('resize',resize);resize();
+function tone(f,d=.045,v=.05){if(!opt.sound||opt.volume<=0)return;try{audioCtx??=new AudioContext();let o=audioCtx.createOscillator(),g=audioCtx.createGain();o.frequency.value=f;g.gain.value=v*opt.volume;o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+d)}catch{}}
+function resetBall(dir=1){aiX=.5;aiY=.235;ball={x:.5,y:.50,z:.18,vx:(Math.random()-.5)*.006,vy:dir*.0032,vz:.006,spin:0};}
+function start(){diff=+document.querySelector('#difficulty .sel')?.dataset.v||diff;sets=+document.getElementById('sets').value;target=+document.getElementById('points').value;opt.table=document.getElementById('tableStyle').value;opt.paddle=document.getElementById('paddleStyle').value;opt.quality=+document.getElementById('quality').value;opt.volume=+document.getElementById('volume').value;opt.sound=document.getElementById('sound').checked;resize();playerSet=aiSet=pScore=aScore=0;statsData={hits:0,errors:0,maxSpeed:0};serve=0;resetBall(1);running=true;paused=false;menu.style.display='none';hud.style.display='flex';stats.style.display='block';pause.style.display='block';mobile.style.display=('ontouchstart'in window||W<700)?'flex':'none';tip.style.display='block';last=performance.now();tone(520,.08,.04);cancelAnimationFrame(raf);raf=requestAnimationFrame(loop)}
+document.querySelectorAll('#difficulty button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#difficulty button').forEach(q=>q.classList.remove('sel'));b.classList.add('sel');diff=+b.dataset.v});
+document.querySelector('#difficulty button[data-v="1"]').classList.add('sel');
+document.getElementById('start').onclick=start;
+document.getElementById('reset').onclick=()=>{menu.style.display='block';running=false;hud.style.display='none';stats.style.display='none';pause.style.display='none';mobile.style.display='none'};
+pause.onclick=()=>{paused=!paused;pause.textContent=paused?'ادامه':'توقف';if(!paused){last=performance.now();raf=requestAnimationFrame(loop)}};
+addEventListener('keydown',e=>{if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){keys[e.key]=true;e.preventDefault()}});
+addEventListener('keyup',e=>{keys[e.key]=false});
+mobile.querySelectorAll('button').forEach(b=>{b.addEventListener('pointerdown',e=>{keys[b.dataset.key]=true;e.preventDefault()});['pointerup','pointercancel','pointerleave'].forEach(ev=>b.addEventListener(ev,()=>keys[b.dataset.key]=false))});
+let dragging=false;
+function point(e){let r=c.getBoundingClientRect();return {x:Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))}}
+c.addEventListener('pointerdown',e=>{if(!running||paused)return;dragging=true;c.setPointerCapture(e.pointerId);let q=point(e);tx=q.x;ty=q.y});
+c.addEventListener('pointermove',e=>{if(!dragging)return;let q=point(e);tx=q.x;ty=q.y});
+c.addEventListener('pointerup',()=>dragging=false);
+function clamp(v,a,b){refunction physics(dt){
+ let k=Math.min(dt/16.67,1.8);
+ // Player movement is deliberately slower and easier to control.
+ const move=.0065*k;
+ if(keys.ArrowLeft)px-=move;
+ if(keys.ArrowRight)px+=move;
+ if(keys.ArrowUp)py-=move*.82;
+ if(keys.ArrowDown)py+=move*.82;
+ if(dragging){px+=(tx-px)*Math.min(.16*k,.24);py+=(ty-py)*Math.min(.16*k,.24)}
+ px=clamp(px,.20,.80);py=clamp(py,.61,.88);
+
+ // AI tracks the ball with reaction time based on difficulty.
+ const aiReact=[.055,.075,.105,.15][diff];
+ if(ball.vy<0){
+   const targetX=clamp(ball.x + ball.vx*22,.20,.80);
+   const targetY=.235;
+   aiX+=(targetX-aiX)*aiReact*k;
+   aiY+=(targetY-aiY)*aiReact*k;
+ }
+
+ // Stable ball integration. Vertical bounce is independent from screen Y.
+ ball.x+=ball.vx*dt*k;
+ ball.y+=ball.vy*dt*k;
+ ball.z+=ball.vz*dt*k;
+ ball.vz-=.0000065*dt*k;
+
+ // Side boundaries.
+ if(ball.x<.075){ball.x=.075;ball.vx=Math.abs(ball.vx)*.94;tone(150,.025,.025)}
+ if(ball.x>.925){ball.x=.925;ball.vx=-Math.abs(ball.vx)*.94;tone(150,.025,.025)}
+
+ // Table-end boundaries. A point is only lost after the ball has clearly
+ // passed the player's return zone, not immediately at the paddle plane.
+ if(ball.y>.885 && ball.vy>0){
+   const dx=ball.x-px;
+   const dz=ball.z-.075;
+   const hitX=Math.abs(dx)<.145;
+   const hitZ=Math.abs(dz)<.18;
+
+   if(hitX && hitZ){
+     const strength=clamp(Math.hypot(dx,dz)/.20,.08,.85);
+     // Return angle is driven by where the paddle was contacted.
+     ball.vy=-(.00315+.00075*strength);
+     ball.vx+=dx*.0038;
+     ball.vz=.0044+strength*.0017;
+     ball.z=Math.max(.075,ball.z);
+     ball.y=.875;
+     ball.spin+=dx*.35;
+     statsData.hits++;
+     tone(390+strength*150,.045,.065);
+   }else{
+     // Give the player a short forgiveness window before counting an error.
+     if(ball.y>.94){
+       aScore++; statsData.errors++; tone(95,.12,.06); resetBall(1);
+     }
+   }
+ }
+
+ // Opponent return zone.
+ if(ball.y<.115 && ball.vy<0){
+   const dx=ball.x-aiX;
+   const dz=ball.z-.075;
+   const hitX=Math.abs(dx)<.155;
+   const hitZ=Math.abs(dz)<.20;
+
+   if(hitX && hitZ){
+     ball.vy=Math.abs(ball.vy)*.97;
+     ball.vx+=(aiX-ball.x)*.0026;
+     ball.vz=.00425+Math.random()*.0012;
+     ball.y=.125;
+     statsData.hits++;
+     tone(330,.045,.05);
+   }else if(ball.y<-.02){
+     pScore++; statsData.errors++; tone(90,.12,.06); resetBall(-1);
+   }
+ }
+
+ // Realistic table bounce. The ball must be above the table surface and
+ // traveling downward before bouncing.
+ if(ball.z<=0 && ball.vz<0 && ball.y>.115 && ball.y<.885){
+   ball.z=0;
+   ball.vz=Math.abs(ball.vz)*.72;
+   ball.vy*=.985;
+   tone(220,.03,.03);
+ }
+
+ // Keep the ball physically bounded so numerical drift cannot create
+ // impossible trajectories.
+ ball.z=clamp(ball.z,-.001,.72);
+ ball.spin*=.997;
+ ball.vx+=ball.spin*.00000045*dt;
+ const speed=Math.hypot(ball.vx,ball.vy,ball.vz)*1000;
+ statsData.maxSpeed=Math.max(statsData.maxSpeed,speed);
+
+ if(pScore>=target||aScore>=target){
+   if(Math.abs(pScore-aScore)>=2){
+     if(pScore>aScore)playerSet++; else aiSet++;
+     pScore=aScore=0;
+     if(playerSet>=Math.ceil(sets/2)||aiSet>=Math.ceil(sets/2)){
+       running=false; menu.style.display='block'; hud.style.display='none';
+       stats.style.display='none'; pause.style.display='none';
+       tone(playerSet>aiSet?760:110,.2,.08); return;
+     }
+     resetBall(++serve%2?1:-1);
+   }
+ }
+ ps.textContent=pScore+' · '+playerSet;
+ as.textContent=aScore+' · '+aiSet;
+}statsData.maxSpeed.toFixed(1);
+}
+function project(px,py,z){
+ const horizon=H*.31, bottom=H*.92;
+ const sy=horizon+(py-.16)/.68*(bottom-horizon)-z*(H*.23);
+ const scale=.34+(py-.16)/.68*.78;
+ return {x:W*.5+(px-.5)*W*.83*scale,y:sy,s:scale};
+}
+function draw(){
+ x.clearRect(0,0,W,H);
+ let g=x.createLinearGradient(0,0,0,H);g.addColorStop(0,'#111a25');g.addColorStop(.45,'#25313b');g.addColorStop(1,'#0a0e13');x.fillStyle=g;x.fillRect(0,0,W,H);
+ // subtle hall lights
+ x.globalAlpha=.10;for(let i=0;i<7;i++){x.beginPath();x.ellipse(W*(.08+i*.14),H*.08, W*.07,H*.025,0,0,Math.PI*2);x.fillStyle='#fff';x.fill()}x.globalAlpha=1;
+ let A=project(.05,.16,0),B=project(.95,.16,0),C=project(.95,.84,0),D=project(.05,.84,0);
+ x.fillStyle=colors[opt.table];x.beginPath();x.moveTo(A.x,A.y);x.lineTo(B.x,B.y);x.lineTo(C.x,C.y);x.lineTo(D.x,D.y);x.closePath();x.fill();
+ x.strokeStyle='rgba(255,255,255,.85)';x.lineWidth=Math.max(1,2*opt.quality);
+ x.beginPath();x.moveTo(A.x,A.y);x.lineTo(B.x,B.y);x.lineTo(C.x,C.y);x.lineTo(D.x,D.y);x.closePath();x.stroke();
+ let M1=project(.05,.50,0),M2=project(.95,.50,0);x.strokeStyle='rgba(255,255,255,.7)';x.beginPath();x.moveTo(M1.x,M1.y);x.lineTo(M2.x,M2.y);x.stroke();
+ // net
+ let n1=project(.05,.50,.02),n2=project(.95,.50,.02);x.strokeStyle='rgba(235,240,245,.9)';x.lineWidth=Math.max(2,3*opt.quality);x.beginPath();x.moveTo(n1.x,n1.y);x.lineTo(n2.x,n2.y);x.stroke();x.lineWidth=1;
+ for(let i=0;i<7;i++){let t=i/6;let p={x:n1.x+(n2.x-n1.x)*t,y:n1.y- H*.045};x.strokeStyle='rgba(220,225,230,.45)';x.beginPath();x.moveTo(p.x,p.y);x.lineTo(p.x,n1.y);x.stroke()}
+ // paddle
+ let pp=project(px,py,0);let pw=Math.min(W*.105,78),ph=pw*.64;
+ let pg=x.createRadialGradient(pp.x-pw*.2,pp.y-ph*.25,2,pp.x,pp.y,pw);pg.addColorStop(0,opt.paddle==='red'?colors.red:opt.paddle==='blue'?colors.blueP:colors.black);pg.addColorStop(1,'#080a0d');
+ x.fillStyle=pg;x.beginPath();x.ellipse(pp.x,pp.y,pw,ph,0,0,Math.PI*2);x.fill();x.fillStyle='#b57a45';x.fillRect(pp.x-7,pp.y+ph*.7,14,ph*.9);
+ // ball
+ let bp=project(ball.x,ball.y,Math.max(0,ball.z));let br=Math.max(3,7*bp.s);let bg=x.createRadialGradient(bp.x-br*.35,bp.y-br*.4,1,bp.x,bp.y,br);bg.addColorStop(0,'#fff');bg.addColorStop(.55,'#f8f8df');bg.addColorStop(1,'#d7d7bc');x.fillStyle=bg;x.beginPath();x.arc(bp.x,bp.y,br,0,Math.PI*2);x.fill();
+}
+function loop(t){if(!running||paused)return;let dt=Math.min(32,t-last);last=t;physics(dt);draw();raf=requestAnimationFrame(loop)}
+draw();
+})();
+</script>
+</body>
+</html>
